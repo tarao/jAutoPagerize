@@ -141,6 +141,54 @@ function getHTMLResource (uri) {
 	return d;
 }
 
+function getResource (uri, convertfun) {
+	var d = Deferred();
+	if (!convertfun) convertfun = function (i) { return i };
+	log("Getting Resource: "+uri);
+	var parse = function(uri) {
+		var m = new RegExp('^([a-z]+):/+([^/]+)').exec(uri);
+		return m && [ m[1], m[2] ];
+	};
+	var isSafe = function(uri) {
+		uri = parse(uri);
+		return parse(location.href).every(function(x, i){ return x==uri[i]; });
+	};
+	GM_xmlhttpRequest({
+		method  : "GET",
+		url     : absoluteURI(uri),
+		overrideMimeType: 'text/html; charset=' + document.characterSet,
+		headers: {
+			"User-Agent": navigator.userAgent + " Greasemonkey (" + AutoPagerize.VERSION + ")"
+		},
+		onload  : function (req) { try {
+			if (isSafe(req.finalUrl)) {
+				var res = convertfun(req.responseText);
+				d.call(res);
+			} else {
+				d.fail('XML HTTP request corrssed domains or protocols');
+			}
+		} catch (e) { d.fail(e) } },
+		onerror : function (e) {
+			d.fail(e);
+		}
+	});
+	return d;
+}
+
+if ((function() {
+	var scripts = document.getElementsByTagName('script');
+	for (var i=0; i < scripts.length; i++) {
+		var lines = (scripts[i].textContent||'').split(/[\r\n]+/);
+		if (lines.length > 0 && lines.some(function(l) {
+			return /top\.location(?:\.href)?\s*=/.test(l);
+		})) return true;
+	}
+})()) {
+	var getHTMLResource = function(uri) {
+		return getResource(uri, createDocumentFromString);
+	};
+}
+
 function getCachedResource (uri, convertfun, expire) {
 	var d   = Deferred();
 	var key = uri;
@@ -813,28 +861,6 @@ function log (m) {
 	}
 }
 
-function getResource (uri, convertfun) {
-	var d = Deferred();
-	if (!convertfun) convertfun = function (i) { return i };
-	log("Getting Resource: "+uri);
-	GM_xmlhttpRequest({
-		method  : "GET",
-		url     : absoluteURI(uri),
-		overrideMimeType: 'text/html; charset=' + document.characterSet,
-		headers: {
-			"User-Agent": navigator.userAgent + " Greasemonkey (" + AutoPagerize.VERSION + ")"
-		},
-		onload  : function (req) { try {
-			var res = convertfun(req.responseText);
-			d.call(res);
-		} catch (e) { d.fail(e) } },
-		onerror : function (e) {
-			d.fail(e);
-		}
-	});
-	return d;
-}
-
 function createDocumentFromString (s) {
 	s = String(s).replace(/<script[ \t\r\n<>][\S\s]*?<\/script(?:[ \t\r\n]*>|[ \t\r\n]+)|<(?:i?frame|html|object|script)(?:[ \t\r\n][^<>]*(?:>|(?=<))|[ \t\r\n]*>)|<\/(?:i?frame|html|object|script)(?:[ \t\r\n]*>|[ \t\r\n]+)/gi, "");
 	var d = createHTMLDocument();
@@ -845,7 +871,6 @@ function createDocumentFromString (s) {
 	root.appendChild(r.createContextualFragment(s));
 	return d;
 }
-
 
 function h (s) {
 	var d = document.createElement("div");
